@@ -1,0 +1,145 @@
+DOCUMENTAÇÃO TÉCNICA — INTEGRAÇÃO MULTI-CLOUD AZURE + AWS VIA VPN SITE-TO-SITE
+
+1. VISÃO GERAL
+Este documento descreve a implementação de uma solução de interconectividade entre os ambientes Microsoft Azure e Amazon Web Services (AWS), utilizando uma conexão VPN Site-to-Site (IPsec). A comunicação entre as nuvens ocorre exclusivamente através de endereços IPv4 privados, garantindo segurança, isolamento e integridade dos dados trafegados.
+
+2. DESCRIÇÃO DA ARQUITETURA
+
+AZURE
+- Virtual Network (VNet) com sub-rede privada.
+- VPN Gateway (Virtual Network Gateway) para estabelecimento do túnel IPsec.
+- Máquina Virtual (VM) Ubuntu provisionada em subnet privada.
+
+AWS
+- Virtual Private Cloud (VPC) com sub-redes privada e pública.
+- Virtual Private Gateway (VGW) para integração VPN.
+- Customer Gateway (CGW) representando o gateway do Azure na AWS.
+- Instância EC2 Ubuntu provisionada na subnet privada.
+
+CONECTIVIDADE VPN
+- Criptografia IPsec.
+- Roteamento estático.
+- Comunicação bidirecional entre redes privadas (10.0.0.0/16 ↔ 10.1.0.0/16).
+
+3. DIAGRAMA LÓGICO
+
++-------------------------+                            +-------------------------+
+|      Microsoft Azure    |                            |        AWS Cloud        |
+|-------------------------|                            |-------------------------|
+| VNet: 10.0.0.0/16       |                            | VPC: 10.1.0.0/16        |
+| Subnet: 10.0.1.0/24     |                            | Subnet: 10.1.1.0/24     |
+|                         |                            |                         |
+|   +-----------------+   | <====== VPN Tunnel ======> |   +-----------------+   |
+|   | VM:10.0.1.X      |------------------------------>|   | EC2:10.1.1.X    |   |
+|   +-----------------+   |                            |   +-----------------+   |
+|                         |                            |                         |
+| +-------------------+   |                            | +-------------------+   |
+| | VPN Gateway (IP Pub)| ============================ | | VGW (IP Pub)      |   |
+| +-------------------+   |                            | +-------------------+   |
++-------------------------+                            +-------------------------+
+
+
+4. PROVISIONAMENTO AZURE
+
+4.1. Grupo de Recursos
+- Nome: rg-joao
+- Região: West US 2
+
+4.2. Virtual Network (VNet)
+- Nome: vnet-azure-joao
+- CIDR: 10.0.0.0/16
+- Subnet Privada: sub-net-privada (10.0.1.0/24)
+- GatewaySubnet: GatewaySubnet (10.0.255.0/27)
+
+4.3. VPN Gateway
+- Nome: vpn-azure-aws
+- Tipo: VPN
+- SKU: VpnGw1
+- Geração: Generation1
+- IP Público: Dinâmico
+- Modo Ativo-Ativo: Desabilitado
+- BGP: Desabilitado
+
+4.4. Local Network Gateway (LNG)
+- Nome: lng-azure-aws
+- IP do Gateway: IP Público do Customer Gateway na AWS
+- Prefixo de Rede: 10.1.0.0/16 (VPC da AWS)
+- Região: West US 2
+
+4.5. Conexão VPN
+- Nome: connection-azure-to-aws-joao
+- Tipo de Conexão: Site-to-Site (IPSec)
+- Local Network Gateway: lng-azure-aws
+- Chave Compartilhada: <valor_configurado_no_aws>
+- Estado Esperado: Connected
+
+5. PROVISIONAMENTO AWS
+
+5.1. Virtual Private Cloud (VPC)
+- Nome: VPC-AWS-Joao
+- CIDR: 10.1.0.0/16
+
+5.2. Subnets
+- Subnet-PRIV-AWS-Joao — 10.1.1.0/24 — Privada
+- Subnet-PUB-AWS-Joao — 10.1.2.0/24 — Pública
+
+5.3. Instâncias EC2
+
+Instância Privada
+- Nome: VM-AWS-Joao-priv
+- SO: Ubuntu Server 24.04
+- Subnet: Subnet-PRIV-AWS-Joao
+- IP Público: Desabilitado
+- Security Group: joao-aws-sg
+
+Instância Pública (Opcional)
+- Nome: VM-AWS-Joao-pub
+- SO: Ubuntu Server 24.04
+- Subnet: Subnet-PUB-AWS-Joao
+- IP Público: Habilitado
+- Security Group: joao-aws-sg
+
+5.4. Customer Gateway (CGW)
+- Nome: cgw-azure-vpn
+- IP Address: IP Público do Azure VPN Gateway
+- ASN: Default ou customizado
+
+5.5. Virtual Private Gateway (VGW)
+- Nome: VGW-AWS-Joao
+- Status: Anexado à VPC
+
+5.6. Conexão VPN Site-to-Site
+- Nome: vpn-aws-to-azure-joao
+- Tipo: Virtual Private Gateway
+- Customer Gateway: cgw-azure-vpn
+- Roteamento: Estático
+- Prefixo da VNet Azure: 10.0.0.0/16
+- Pre-Shared Key: <mesmo_configurado_no_azure>
+- Estado Esperado: UP / Connected
+
+5.7. Internet Gateway (IGW)
+- Nome: igw-joao
+- Status: Anexado
+
+5.8. Tabela de Rotas
+- Destino: 10.0.0.0/16 — Target: Virtual Private Gateway
+- Destino: 0.0.0.0/0 — Target: Internet Gateway
+
+6. VALIDAÇÃO E TESTES
+- Verificar status da VPN em ambos os lados (AWS e Azure) — Deve estar como Connected.
+- Testar conectividade ICMP (ping) entre:
+  - VM no Azure (10.0.1.x) ⇆ VM na AWS (10.1.1.x)
+- Verificar tabelas de rotas nas duas nuvens.
+- Validar logs dos VPN Gateways.
+- Troubleshooting:
+  - Checar prefixos corretos.
+  - Verificar consistência da PSK.
+  - Conferir regras dos Security Groups (AWS) e NSG (Azure).
+
+7. OBSERVAÇÕES E BOAS PRÁTICAS
+- Implementar monitoramento ativo da VPN (Azure Monitor, AWS CloudWatch).
+- Avaliar configuração de alta disponibilidade:
+  - Azure: VPN Gateway em modo Ativo-Ativo.
+  - AWS: Múltiplos túneis.
+- Aumentar segurança com Zero Trust e ACLs restritivas.
+- Validar compliance com NIST, ISO 27001, LGPD, CIS Benchmark.
